@@ -56,7 +56,6 @@ contract FunctionsConsumer is FunctionsClient, ConfirmedOwner {
     constructor() FunctionsClient(router) ConfirmedOwner(msg.sender) {}
 
     /**
-     * @notice Sends an HTTP request for character information
      * @param subscriptionId The ID for the Chainlink subscription
      * @param args The arguments to pass to the HTTP request
      * @return requestId The ID of the request
@@ -66,8 +65,8 @@ contract FunctionsConsumer is FunctionsClient, ConfirmedOwner {
         string[] calldata args
     ) external onlyOwner returns (bytes32 requestId) {
         FunctionsRequest.Request memory req;
-        req.initializeRequestForInlineJavaScript(source); // Initialize the request with JS code
-        if (args.length > 0) req.setArgs(args); // Set the arguments for the request
+        req.initializeRequestForInlineJavaScript(source);   // Initialize the request with JS code
+        if (args.length > 0) req.setArgs(args);             // Set the arguments for the request
 
         // Send the request and store the request ID
         s_lastRequestId = _sendRequest(
@@ -92,7 +91,7 @@ contract FunctionsConsumer is FunctionsClient, ConfirmedOwner {
         bytes memory err
     ) internal override {
         if (s_lastRequestId != requestId) {
-            revert UnexpectedRequestID(requestId); // Check if request IDs match
+            revert UnexpectedRequestID(requestId);          // Check if request IDs match
         }
         // Update the contract's state variables with the response and any errors
         s_lastResponse = response;

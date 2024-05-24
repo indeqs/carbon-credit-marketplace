@@ -5,8 +5,9 @@ pragma solidity 0.8.24;
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import {FunctionsConsumer} from "./FunctionsConsumer.sol";
 
-contract CarbonCreditMarketplace is ReentrancyGuard {
+contract CarbonCredits is ReentrancyGuard {
     address payable public governmentAddress;
+
     uint16 public emissionFinePerTonne = 100 wei;
     uint16 public pricePerCarbonCredit = 1_000 wei;
     uint256 public initialCarbonCredits = 10;
@@ -139,6 +140,7 @@ contract CarbonCreditMarketplace is ReentrancyGuard {
 
     /**
      * @dev Allows a company to pay a fine for extra emissions. The company to be fined is the one to call this function
+     * @dev Ideally, this function should be called automatically.
      * @param company The address of the company to be fined
      */
     function payEmissionFine(
