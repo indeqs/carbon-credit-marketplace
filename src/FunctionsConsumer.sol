@@ -15,6 +15,7 @@ contract FunctionsConsumer is FunctionsClient, ConfirmedOwner {
     // State variables to store the last request ID, response and error
     bytes32 public s_lastRequestId;
     bytes public s_lastResponse;
+    uint256 public s_totalCarbonGas;
     bytes public s_lastError;
 
     error UnexpectedRequestID(bytes32 requestId);
@@ -28,22 +29,19 @@ contract FunctionsConsumer is FunctionsClient, ConfirmedOwner {
     // JavaScript source code
     string source =
         "const response = await Functions.makeHttpRequest({"
-        "    url: 'https://api.npoint.io/bc44b7c8ff91cee9ce07'"
+        "url: 'https://api.npoint.io/bc44b7c8ff91cee9ce07'"
         "});"
         "if (response.error) {"
-        "    console.error('An error occurred: ', response.error);"
-        "    return;"
+        "console.error('An error occurred: ', response.error);"
+        "return;"
         "}"
-        "// Initialize a variable to hold the sum of carbonGas"
         "let totalCarbonGas = 0;"
-        "// Loop through the response data and sum the carbonGas where isFunctional is true and type is CO2"
         "response.data.sensors.forEach(sensor => {"
-        "    if (sensor.isFunctional && sensor.type === 'CO2') {"
-        "        totalCarbonGas += sensor.measurement.carbonGas;"
-        "    }"
+        "if (sensor.isFunctional && sensor.type === 'CO2') {"
+        "totalCarbonGas += sensor.measurement.carbonGas;"
+        "}"
         "});"
-        "// Return just the sum as a string"
-        "return Functions.encodeString(totalCarbonGas.toString());";
+        "return Functions.encodeUint256(totalCarbonGas);";
 
     // Callback gas limit
     uint32 gasLimit = 300_000;
@@ -98,6 +96,7 @@ contract FunctionsConsumer is FunctionsClient, ConfirmedOwner {
         }
         // Update the contract's state variables with the response and any errors
         s_lastResponse = response;
+        s_totalCarbonGas = abi.decode(s_lastResponse, (uint256));
         s_lastError = err;
 
         // Emit an event to log the response

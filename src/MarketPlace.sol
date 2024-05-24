@@ -5,29 +5,23 @@ pragma solidity 0.8.24;
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import {FunctionsConsumer} from "./FunctionsConsumer.sol";
 
-contract CarbonCreditMarketplace {
+contract CarbonCreditMarketplace is ReentrancyGuard {
     address payable public governmentAddress;
-    uint256 public initialAmountOfCarbonCredits = 10;
-    uint256 public initialAmountOfCarbonEmission = 0;
+    uint16 public emissionFinePerTonne = 100 wei;
+    uint16 public pricePerCarbonCredit = 1_000 wei;
+    uint256 public initialCarbonCredits = 10;
+    uint256 public initialCarbonEmissions = 0;
 
-    bytes public responseFromChainlink = FunctionsConsumer.s_lastResponse;
-
-    /**
-     * name                    : The name of the company
-     * amountOfcarbonCredits   : The amount of carbon credits given to the company by the governmemt
-     * totalCarbonEmission     : The total amount of carbon dioxide emitted to the environment by the company
-     * isRegistered            : A boolean value indicating whether the company is viable to receive carbon credits or not
-                                 from the government. Regulatory compliance and checks can be done before approving the company
-     */
+    FunctionsConsumer public functionsConsumerContractInstance;
+    uint256 public totalCarbonEmissionsFromChainlink;
 
     struct Company {
         address companyAddress;
-        uint256 amountOfCarbonCredits;
-        uint256 totalCarbonEmission;
+        uint256 carbonCredits;
+        uint256 carbonEmissions;
         bool isRegistered;
     }
 
-    // Mapping of addresses to Company struct
     mapping(address => Company) public companies;
 
     modifier onlyRegisteredCompany() {
@@ -47,75 +41,138 @@ contract CarbonCreditMarketplace {
     }
 
     event CompanyRegistered(address indexed company);
-
     event CarbonCreditsIssued(
         address indexed company,
-        uint256 numberOfCarbonCreditIssued
+        uint256 carbonCreditsIssued
     );
+    event NoEmissionFine(string message);
 
-    constructor() {
+    constructor(address _functionsConsumerAddress) {
         governmentAddress = payable(msg.sender);
+        functionsConsumerContractInstance = FunctionsConsumer(
+            _functionsConsumerAddress
+        );
+        totalCarbonEmissionsFromChainlink = functionsConsumerContractInstance
+            .s_totalCarbonGas();
     }
 
     /**
-     * @dev A function that allows companies to register themselves
-     * @param _companyAddress Company address
+     * @dev Registers a company by the government
+     * @param _companyAddress The address of the company to be registered
      */
-
-    function registerCompany(address _companyAddress) external {
+    function registerCompany(address _companyAddress) external onlyGovernment {
         require(
-            companies[msg.sender].isRegistered == false,
-            "Company is already registered"
+            companies[_companyAddress].isRegistered == false,
+            "Company is already registered by the government"
         );
 
-        companies[msg.sender] = Company(
+        companies[_companyAddress] = Company(
             _companyAddress,
-            initialAmountOfCarbonCredits,
-            initialAmountOfCarbonEmission,
+            initialCarbonCredits,
+            initialCarbonEmissions,
             true
         );
 
-        emit CompanyRegistered(msg.sender);
+        emit CompanyRegistered(_companyAddress);
     }
 
     /**
-     * @dev A function for the government to issue carbon credits to registered companies
+     * @dev Issues carbon credits to a registered company
      * @param company The address of the company receiving the carbon credits
-     * @param _amountOfCarbonCredits The amount of carbon credits given to the company by the government
+     * @param _carbonCredits The amount of carbon credits to be issued
      */
     function issueCarbonCredits(
         address company,
-        uint256 _amountOfCarbonCredits
+        uint256 _carbonCredits
     ) external onlyGovernment {
         require(
             companies[company].isRegistered == true,
             "Company is not registered"
         );
 
-        companies[company].amountOfCarbonCredits += _amountOfCarbonCredits;
-        emit CarbonCreditsIssued(company, _amountOfCarbonCredits);
+        companies[company].carbonCredits += _carbonCredits;
+        emit CarbonCreditsIssued(company, _carbonCredits);
     }
 
     /**
-     * @dev A function that allows one company to trade its surplus carbon credits with another company after it has been established
-     * that `from` has a surplus credit as read from carbon sensors
-     * @param from from which company?
-     * @param to to which company?
-     * @param amount how much carbon credit are you selling
+     * @dev Allows a company to buy carbon credits from another company. The buyer is the one to call this function.
+     * @param seller The seller of the carbon credits
+     * @param numberOfCarbonCredits The number of carbon credits to buy
      */
-    function tradeCarbonCredit(
-        address from,
-        address to,
-        uint256 amount
-    ) public onlyRegisteredCompany {}
+    function buyCarbonCredits(
+        address seller,
+        uint256 numberOfCarbonCredits
+    ) public onlyRegisteredCompany nonReentrant {
+        uint256 sellerCarbonCredits = companies[seller].carbonCredits;
+        require(
+            sellerCarbonCredits > totalCarbonEmissionsFromChainlink,
+            "Seller has fewer carbon credits than their emissions"
+        );
+        require(
+            numberOfCarbonCredits <= sellerCarbonCredits,
+            "Seller does not have enough carbon credits"
+        );
 
-    /*
-    function fine() external {
-        if (carbonProducedAsGottenFromChainlink > carbonCreditGivenByGovt){
-            uint256 gasDueToExtraEmissions = carbonProducedAsGottenFromChainlink - carbonCreditGivenByGovt;
-            uint256 fineToBePaid = gasDueToExtraEmissions * feeChargedPerExtraTonneOfEmission;
+        companies[msg.sender].carbonCredits += numberOfCarbonCredits;
+        companies[seller].carbonCredits -= numberOfCarbonCredits;
+
+        uint256 totalCost = numberOfCarbonCredits * pricePerCarbonCredit;
+        (bool sent, ) = seller.call{value: totalCost}("");
+        require(sent, "Failed to pay the seller for carbon credits");
+    }
+
+    /**
+     * @dev Sets the price per extra carbon credit purchased
+     * @param _price The new price in wei
+     */
+    function setPricePerCarbonCredit(uint16 _price) external onlyGovernment {
+        pricePerCarbonCredit = _price;
+    }
+
+    /**
+     * @dev Sets the fine per extra tonne of emissions
+     * @param _fine The new fine in wei
+     */
+    function setEmissionFinePerTonne(uint16 _fine) external onlyGovernment {
+        emissionFinePerTonne = _fine;
+    }
+
+    /**
+     * @dev Allows a company to pay a fine for extra emissions. The company to be fined is the one to call this function
+     * @param company The address of the company to be fined
+     */
+    function payEmissionFine(
+        address company
+    ) external onlyRegisteredCompany nonReentrant {
+        uint256 companyCarbonCredits = companies[company].carbonCredits;
+        if (totalCarbonEmissionsFromChainlink > companyCarbonCredits) {
+            uint256 extraEmissions = totalCarbonEmissionsFromChainlink -
+                companyCarbonCredits;
+            uint256 fineAmount = extraEmissions * emissionFinePerTonne;
+            (bool sent, ) = governmentAddress.call{value: fineAmount}("");
+            require(sent, "Failed to send fine to the government");
+        } else {
+            emit NoEmissionFine(
+                "Your carbon emissions are less than your carbon credits, good job!"
+            );
         }
     }
 
-    */
+    /**
+     * @dev Returns the extra carbon emissions for a company
+     * @param _company The address of the company
+     * @return extraCarbonEmissions The amount of extra carbon emissions
+     */
+    function getExtraCarbonEmissions(
+        address _company
+    ) public view returns (uint256) {
+        uint256 companyCarbonCredits = companies[_company].carbonCredits;
+        if (totalCarbonEmissionsFromChainlink > companyCarbonCredits) {
+            return totalCarbonEmissionsFromChainlink - companyCarbonCredits;
+        } else if (totalCarbonEmissionsFromChainlink == companyCarbonCredits) {
+            return totalCarbonEmissionsFromChainlink;
+        } else {
+            return 0;
+        }
+    }
 }
