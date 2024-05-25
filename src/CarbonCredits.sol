@@ -18,12 +18,15 @@ contract CarbonCredits is ReentrancyGuard {
 
     struct Company {
         address companyAddress;
+        string companyName;
         uint256 carbonCredits;
         uint256 carbonEmissions;
         bool isRegistered;
     }
 
     mapping(address => Company) public companies;
+    address[] public registeredCompanies;
+    address[] public pendingKYCs;
 
     modifier onlyRegisteredCompany() {
         require(
@@ -47,6 +50,7 @@ contract CarbonCredits is ReentrancyGuard {
         uint256 carbonCreditsIssued
     );
     event NoEmissionFine(string message);
+    event KYCRequest(address indexed company, string companyName);
 
     constructor(address _functionsConsumerAddress) {
         governmentAddress = payable(msg.sender);
@@ -58,21 +62,50 @@ contract CarbonCredits is ReentrancyGuard {
     }
 
     /**
-     * @dev Registers a company by the government
-     * @param _companyAddress The address of the company to be registered
+     * @dev Requests KYC approval for a company
+     * @param _companyName The name of the company to be registered
      */
-    function registerCompany(address _companyAddress) external onlyGovernment {
+    function requestKYC(string memory _companyName) external {
         require(
-            companies[_companyAddress].isRegistered == false,
+            companies[msg.sender].isRegistered == false,
             "Company is already registered by the government"
         );
 
-        companies[_companyAddress] = Company(
-            _companyAddress,
-            initialCarbonCredits,
-            initialCarbonEmissions,
-            true
+        Company memory newCompany = Company({
+            companyAddress: msg.sender,
+            companyName: _companyName,
+            carbonCredits: initialCarbonCredits,
+            carbonEmissions: initialCarbonEmissions,
+            isRegistered: false
+        });
+
+        companies[msg.sender] = newCompany;
+        pendingKYCs.push(msg.sender);
+
+        emit KYCRequest(msg.sender, _companyName);
+    }
+
+    /**
+     * @dev Approves a company's KYC by the government
+     * @param _companyAddress The address of the company to be approved
+     */
+    function approveKYC(address _companyAddress) external onlyGovernment {
+        require(
+            companies[_companyAddress].isRegistered == false,
+            "Company is already registered"
         );
+
+        companies[_companyAddress].isRegistered = true;
+        registeredCompanies.push(_companyAddress);
+
+        // Remove from pendingKYCs
+        for (uint i = 0; i < pendingKYCs.length; i++) {
+            if (pendingKYCs[i] == _companyAddress) {
+                pendingKYCs[i] = pendingKYCs[pendingKYCs.length - 1];
+                pendingKYCs.pop();
+                break;
+            }
+        }
 
         emit CompanyRegistered(_companyAddress);
     }
@@ -176,5 +209,21 @@ contract CarbonCredits is ReentrancyGuard {
         } else {
             return 0;
         }
+    }
+
+    /**
+     * @dev Returns the list of registered companies
+     * @return List of registered company addresses
+     */
+    function getRegisteredCompanies() external view returns (address[] memory) {
+        return registeredCompanies;
+    }
+
+    /**
+     * @dev Returns the list of pending KYC requests
+     * @return List of pending KYC company addresses
+     */
+    function getPendingKYCs() external view returns (address[] memory) {
+        return pendingKYCs;
     }
 }
